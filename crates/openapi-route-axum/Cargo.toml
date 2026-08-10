@@ -9,3 +9,9 @@ rust-version.workspace = true
 [dependencies]
 axum.workspace = true
 openapi-route.workspace = true
+
+[build-dependencies]
+ureq.workspace = true
+flate2.workspace = true
+tar.workspace = true
+sha2.workspace = true
