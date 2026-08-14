@@ -55,7 +55,10 @@ fn main() {
 /// gate below, so stale assets cannot survive an upgrade unnoticed).
 fn assets_present(asset_dir: &Path) -> bool {
     let marker = asset_dir.join(format!(".version-{SWAGGER_UI_VERSION}"));
-    marker.is_file() && ASSET_FILES.iter().all(|name| asset_dir.join(name).is_file())
+    marker.is_file()
+        && ASSET_FILES
+            .iter()
+            .all(|name| asset_dir.join(name).is_file())
 }
 
 /// The tarball bytes: a local override for offline builds, else the
