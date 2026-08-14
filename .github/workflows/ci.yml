@@ -1,0 +1,164 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - run: cargo +nightly fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - run: cargo +nightly clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo test --workspace
+      - run: cargo test --workspace --doc
+
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      number: ${{ steps.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: version
+        run: |
+          VERSION=$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "Could not read the workspace version" >&2
+            exit 1
+          fi
+          echo "number=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, test, version]
+    if: needs.version.outputs.changed == 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Publish workspace crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          VERSION: ${{ needs.version.outputs.number }}
+        run: |
+          version_exists() {
+            crate_name="$1"
+            if status=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -A "legra-ai-release-workflow" \
+              "https://crates.io/api/v1/crates/$crate_name/$VERSION"); then
+              :
+            else
+              curl_rc=$?
+              return "$curl_rc"
+            fi
+            case "$status" in
+              200) return 0 ;;
+              404) return 1 ;;
+              *)
+                echo "crates.io returned HTTP $status for $crate_name $VERSION" >&2
+                return 2
+                ;;
+            esac
+          }
+
+          publish_crate() {
+            manifest="$1"
+            crate_name="$2"
+
+            if version_exists "$crate_name"; then
+              echo "$crate_name $VERSION is already published"
+              return 0
+            else
+              exists_rc=$?
+              if [ "$exists_rc" -ne 1 ]; then
+                return "$exists_rc"
+              fi
+            fi
+
+            if ! cargo publish --manifest-path "$manifest"; then
+              return 1
+            fi
+
+            attempt=1
+            while [ "$attempt" -le 30 ]; do
+              if version_exists "$crate_name"; then
+                return 0
+              else
+                exists_rc=$?
+                if [ "$exists_rc" -ne 1 ]; then
+                  return "$exists_rc"
+                fi
+              fi
+              sleep 10
+              attempt=$((attempt + 1))
+            done
+            echo "$crate_name $VERSION did not become visible on crates.io" >&2
+            return 1
+          }
+
+          publish_crate crates/openapi-route-macros/Cargo.toml openapi-route-macros || exit $?
+          publish_crate crates/openapi-route/Cargo.toml openapi-route || exit $?
+          publish_crate crates/openapi-route-axum/Cargo.toml openapi-route-axum || exit $?
+
+      - name: Create release tag
+        env:
+          VERSION: ${{ needs.version.outputs.number }}
+        run: |
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.version.outputs.number }}
+          name: v${{ needs.version.outputs.number }}
+          generate_release_notes: true
+
+      - name: Summary
+        env:
+          VERSION: ${{ needs.version.outputs.number }}
+        run: |
+          echo "Published openapi-route workspace $VERSION"
+          echo "https://github.com/${{ github.repository }}/releases/tag/v$VERSION"
