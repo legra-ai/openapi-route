@@ -9,6 +9,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.2"
 edition = "2024"
+authors = ["DataRoad Inc, Delaware, USA, trading as Legra"]
 homepage = "https://github.com/legra-ai/openapi-route"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
