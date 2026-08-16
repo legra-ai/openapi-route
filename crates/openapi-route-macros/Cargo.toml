@@ -3,6 +3,7 @@ name = "openapi-route-macros"
 description = "Procedural macros for handler-local openapi-route metadata"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 homepage.workspace = true
 license.workspace = true
 readme.workspace = true
