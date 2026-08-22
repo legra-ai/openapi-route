@@ -15,7 +15,9 @@ axum.workspace = true
 openapi-route.workspace = true
 
 [build-dependencies]
+async-fs-io = "0.1.5"
 ureq.workspace = true
 flate2.workspace = true
 tar.workspace = true
 sha2.workspace = true
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread"] }
