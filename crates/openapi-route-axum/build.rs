@@ -70,7 +70,10 @@ async fn assets_present(asset_dir: &Path) -> bool {
 }
 
 async fn is_file(path: &Path) -> bool {
-    if !try_exists(path).await.expect("inspect generated asset path") {
+    if !try_exists(path)
+        .await
+        .expect("inspect generated asset path")
+    {
         return false;
     }
     !metadata(path)
