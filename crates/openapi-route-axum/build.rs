@@ -15,6 +15,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use async_fs_io::{ensure_dir, metadata, read_bounded, try_exists, write_bytes};
+
 /// Pinned Swagger UI version. Upgrading is a deliberate change to
 /// both constants, reviewed like any dependency bump.
 const SWAGGER_UI_VERSION: &str = "5.32.12";
@@ -33,7 +35,8 @@ const ASSET_FILES: &[&str] = &[
     "favicon-16x16.png",
 ];
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-env-changed=OPENAPI_ROUTE_SWAGGER_UI_TARBALL");
     println!("cargo::rustc-env=OPENAPI_ROUTE_SWAGGER_UI_VERSION={SWAGGER_UI_VERSION}");
@@ -41,33 +44,53 @@ fn main() {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     let asset_dir = out_dir.join("swagger-ui");
 
-    if assets_present(&asset_dir) {
+    if assets_present(&asset_dir).await {
         return;
     }
 
-    let tarball = obtain_tarball();
+    let tarball = obtain_tarball().await;
     verify_sha256(&tarball);
-    extract_assets(&tarball, &asset_dir);
+    extract_assets(&tarball, &asset_dir).await;
 }
 
 /// All expected files already extracted (a previous build of the same
 /// pinned version — `OUT_DIR` is per-version by way of the checksum
 /// gate below, so stale assets cannot survive an upgrade unnoticed).
-fn assets_present(asset_dir: &Path) -> bool {
+async fn assets_present(asset_dir: &Path) -> bool {
     let marker = asset_dir.join(format!(".version-{SWAGGER_UI_VERSION}"));
-    marker.is_file()
-        && ASSET_FILES
-            .iter()
-            .all(|name| asset_dir.join(name).is_file())
+    if !is_file(&marker).await {
+        return false;
+    }
+    for name in ASSET_FILES {
+        if !is_file(&asset_dir.join(name)).await {
+            return false;
+        }
+    }
+    true
+}
+
+async fn is_file(path: &Path) -> bool {
+    if !try_exists(path)
+        .await
+        .expect("inspect generated asset path")
+    {
+        return false;
+    }
+    !metadata(path)
+        .await
+        .expect("inspect generated asset metadata")
+        .is_directory
 }
 
 /// The tarball bytes: a local override for offline builds, else the
 /// npm registry.
-fn obtain_tarball() -> Vec<u8> {
+async fn obtain_tarball() -> Vec<u8> {
     if let Ok(local) = std::env::var("OPENAPI_ROUTE_SWAGGER_UI_TARBALL") {
-        return std::fs::read(&local).unwrap_or_else(|e| {
-            panic!("OPENAPI_ROUTE_SWAGGER_UI_TARBALL={local} is not readable: {e}")
-        });
+        return read_bounded(&local, 256 * 1024 * 1024)
+            .await
+            .unwrap_or_else(|e| {
+                panic!("OPENAPI_ROUTE_SWAGGER_UI_TARBALL={local} is not readable: {e}")
+            });
     }
 
     let url = format!(
@@ -101,8 +124,9 @@ fn verify_sha256(tarball: &[u8]) {
 }
 
 /// Extract exactly [`ASSET_FILES`] from `package/` into `asset_dir`.
-fn extract_assets(tarball: &[u8], asset_dir: &Path) {
-    std::fs::create_dir_all(asset_dir)
+async fn extract_assets(tarball: &[u8], asset_dir: &Path) {
+    ensure_dir(asset_dir)
+        .await
         .unwrap_or_else(|e| panic!("creating {}: {e}", asset_dir.display()));
 
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball));
@@ -122,7 +146,8 @@ fn extract_assets(tarball: &[u8], asset_dir: &Path) {
         entry
             .read_to_end(&mut contents)
             .unwrap_or_else(|e| panic!("reading {name} from tarball: {e}"));
-        std::fs::write(&target, contents)
+        write_bytes(&target, &contents)
+            .await
             .unwrap_or_else(|e| panic!("writing {}: {e}", target.display()));
         remaining.swap_remove(index);
     }
@@ -132,6 +157,7 @@ fn extract_assets(tarball: &[u8], asset_dir: &Path) {
     );
 
     let marker = asset_dir.join(format!(".version-{SWAGGER_UI_VERSION}"));
-    std::fs::write(&marker, TARBALL_SHA256)
+    write_bytes(&marker, TARBALL_SHA256.as_bytes())
+        .await
         .unwrap_or_else(|e| panic!("writing {}: {e}", marker.display()));
 }
