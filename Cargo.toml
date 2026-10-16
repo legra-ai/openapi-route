@@ -14,7 +14,7 @@ homepage = "https://github.com/legra-ai/openapi-route"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/legra-ai/openapi-route"
-rust-version = "1.85"
+rust-version = "1.99.1"
 
 [workspace.dependencies]
 openapi-route = { path = "crates/openapi-route", version = "0.1.1" }
