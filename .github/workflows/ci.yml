@@ -18,7 +18,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt
-      - run: cargo fmt --all -- --check
+      - uses: dtolnay/rust-toolchain@nightly-2026-10-16
+        with:
+          components: rustfmt
+      - run: cargo +nightly-2026-10-16 fmt --all -- --check
 
   clippy:
     name: Clippy
