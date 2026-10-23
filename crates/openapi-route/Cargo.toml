@@ -17,4 +17,4 @@ serde_json.workspace = true
 utoipa.workspace = true
 
 [build-dependencies]
-rhusky = "0.0.6"
+rhusky = "2.0.0"
