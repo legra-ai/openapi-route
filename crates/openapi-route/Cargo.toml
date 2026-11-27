@@ -4,7 +4,6 @@ description = "Explicit, handler-local OpenAPI route metadata and document gener
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-homepage.workspace = true
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
